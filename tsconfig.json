@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023", "DOM"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "esModuleInterop": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "noEmit": true,
+    "paths": {
+      "@giga-pdf/types": ["./src/vendor/giga-pdf/types/src/index.ts"],
+      "@giga-pdf/pdf-engine": ["./src/vendor/giga-pdf/pdf-engine/src/index.ts"],
+      "@giga-pdf/pdf-engine/engine": ["./src/vendor/giga-pdf/pdf-engine/src/engine/index.ts"],
+      "@giga-pdf/pdf-engine/parse": ["./src/vendor/giga-pdf/pdf-engine/src/parse/index.ts"],
+      "@giga-pdf/pdf-engine/render": ["./src/vendor/giga-pdf/pdf-engine/src/render/index.ts"],
+      "@giga-pdf/pdf-engine/merge-split": ["./src/vendor/giga-pdf/pdf-engine/src/merge-split/index.ts"],
+      "@giga-pdf/pdf-engine/forms": ["./src/vendor/giga-pdf/pdf-engine/src/forms/index.ts"],
+      "@giga-pdf/pdf-engine/encrypt": ["./src/vendor/giga-pdf/pdf-engine/src/encrypt/index.ts"],
+      "@giga-pdf/pdf-engine/preview": ["./src/vendor/giga-pdf/pdf-engine/src/preview/index.ts"],
+      "@giga-pdf/pdf-engine/convert": ["./src/vendor/giga-pdf/pdf-engine/src/convert/index.ts"]
+    }
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}

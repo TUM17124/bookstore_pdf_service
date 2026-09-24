@@ -1,0 +1,23 @@
+{
+  "name": "bookstore-pdf-service",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Standalone PDF-math service for the PlugYard editor. Ported from bookstore's Next.js API routes (which cannot run under output: \"export\") - same GigaPDF-derived logic, running as a plain Node HTTP service instead.",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@qrcommunication/gigapdf-lib": "0.121.0",
+    "jsonwebtoken": "^9.0.2",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.7",
+    "@types/node": "^22",
+    "tsx": "^4.19.2",
+    "typescript": "^5"
+  }
+}
