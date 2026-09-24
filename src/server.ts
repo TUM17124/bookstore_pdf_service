@@ -81,16 +81,41 @@ async function toWebRequest(req: IncomingMessage, url: URL): Promise<Request> {
     }
   }
 
-  const hasBody = req.method !== "GET" && req.method !== "HEAD";
-  const body = hasBody ? (req as unknown as ReadableStream<Uint8Array>) : undefined;
+  const canHaveBody = req.method !== "GET" && req.method !== "HEAD";
+  const body = canHaveBody ? (req as unknown as ReadableStream<Uint8Array>) : undefined;
 
-  return new Request(url, {
+  const request = new Request(url, {
     method: req.method,
     headers,
     body,
     // Node's fetch Request requires this when a stream body is provided.
-    duplex: hasBody ? "half" : undefined,
+    duplex: canHaveBody ? "half" : undefined,
   } as RequestInit & { duplex?: "half" });
+
+  // The Fetch spec forbids a body on GET/HEAD Request construction, but a
+  // GET request (e.g. attachments.ts's list endpoint) may still carry a real
+  // multipart body over the wire. Buffer it and let route handlers read it
+  // via the usual request.formData()/arrayBuffer()/text()/json() - routed
+  // through a same-origin Response, which has no such method restriction, so
+  // this reuses Node's own multipart parser rather than reimplementing one.
+  if (!canHaveBody && (req.headers["content-length"] || req.headers["transfer-encoding"])) {
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) chunks.push(chunk as Buffer);
+    const bodyBuffer = Buffer.concat(chunks);
+    if (bodyBuffer.length > 0) {
+      const bodyHeaders = new Headers();
+      const contentType = headers.get("content-type");
+      if (contentType) bodyHeaders.set("content-type", contentType);
+      Object.defineProperties(request, {
+        formData: { value: () => new Response(bodyBuffer, { headers: bodyHeaders }).formData() },
+        arrayBuffer: { value: () => new Response(bodyBuffer).arrayBuffer() },
+        text: { value: () => new Response(bodyBuffer).text() },
+        json: { value: () => new Response(bodyBuffer).json() },
+      });
+    }
+  }
+
+  return request;
 }
 
 /** Writes a standard Fetch API Response back onto a Node ServerResponse. */

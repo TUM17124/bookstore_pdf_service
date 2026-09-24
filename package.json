@@ -5,8 +5,8 @@
   "description": "Standalone PDF-math service for the PlugYard editor. Ported from bookstore's Next.js API routes (which cannot run under output: \"export\") - same GigaPDF-derived logic, running as a plain Node HTTP service instead.",
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/server.ts",
-    "start": "tsx src/server.ts",
+    "dev": "tsx --env-file=.env watch src/server.ts",
+    "start": "tsx --env-file=.env src/server.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
