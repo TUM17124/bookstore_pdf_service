@@ -26,6 +26,7 @@ import * as annotations from "./routes/annotations.js";
 import * as textStyle from "./routes/text-style.js";
 import * as attachments from "./routes/attachments.js";
 import * as officeExport from "./routes/office-export.js";
+import * as blank from "./routes/blank.js";
 
 type Handler = (request: Request) => Promise<Response>;
 type RouteTable = Record<string, Partial<Record<"GET" | "POST", Handler>>>;
@@ -44,6 +45,7 @@ const routes: RouteTable = {
   "/api/pdf/text-style": { POST: textStyle.POST },
   "/api/pdf/attachments": { GET: attachments.GET, POST: attachments.POST },
   "/api/office/export": { POST: officeExport.POST },
+  "/api/pdf/blank": { POST: blank.POST },
 };
 
 const PORT = Number(process.env.PORT ?? 8002);
