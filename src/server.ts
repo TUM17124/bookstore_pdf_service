@@ -45,6 +45,11 @@ import * as open from "./routes/open.js";
 import * as applyElements from "./routes/apply-elements.js";
 import * as applyModelOps from "./routes/apply-model-ops.js";
 import * as ocg from "./routes/ocg.js";
+import * as pageBoxes from "./routes/page-boxes.js";
+import * as pageLabels from "./routes/page-labels.js";
+import * as pdfa from "./routes/pdfa.js";
+import * as presentation from "./routes/presentation.js";
+import * as color from "./routes/color.js";
 
 type Handler = (request: Request) => Promise<Response>;
 type RouteTable = Record<string, Partial<Record<"GET" | "POST", Handler>>>;
@@ -82,6 +87,11 @@ const routes: RouteTable = {
   "/api/pdf/apply-elements": { POST: applyElements.POST },
   "/api/pdf/apply-model-ops": { POST: applyModelOps.POST },
   "/api/pdf/ocg": { POST: ocg.POST },
+  "/api/pdf/page-boxes": { POST: pageBoxes.POST },
+  "/api/pdf/page-labels": { POST: pageLabels.POST },
+  "/api/pdf/pdfa": { POST: pdfa.POST },
+  "/api/pdf/presentation": { POST: presentation.POST },
+  "/api/pdf/color": { POST: color.POST },
 };
 
 const PORT = Number(process.env.PORT ?? 8002);
