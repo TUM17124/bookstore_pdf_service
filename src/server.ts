@@ -27,6 +27,24 @@ import * as textStyle from "./routes/text-style.js";
 import * as attachments from "./routes/attachments.js";
 import * as officeExport from "./routes/office-export.js";
 import * as blank from "./routes/blank.js";
+import * as merge from "./routes/merge.js";
+import * as split from "./routes/split.js";
+import * as compress from "./routes/compress.js";
+import * as convert from "./routes/convert.js";
+import * as pages from "./routes/pages.js";
+import * as encrypt from "./routes/encrypt.js";
+import * as sign from "./routes/sign.js";
+import * as watermark from "./routes/watermark.js";
+import * as forms from "./routes/forms.js";
+import * as metadata from "./routes/metadata.js";
+import * as ocr from "./routes/ocr.js";
+import * as tableStructure from "./routes/table-structure.js";
+import * as search from "./routes/search.js";
+import * as flatten from "./routes/flatten.js";
+import * as open from "./routes/open.js";
+import * as applyElements from "./routes/apply-elements.js";
+import * as applyModelOps from "./routes/apply-model-ops.js";
+import * as ocg from "./routes/ocg.js";
 
 type Handler = (request: Request) => Promise<Response>;
 type RouteTable = Record<string, Partial<Record<"GET" | "POST", Handler>>>;
@@ -46,6 +64,24 @@ const routes: RouteTable = {
   "/api/pdf/attachments": { GET: attachments.GET, POST: attachments.POST },
   "/api/office/export": { POST: officeExport.POST },
   "/api/pdf/blank": { POST: blank.POST },
+  "/api/pdf/merge": { POST: merge.POST },
+  "/api/pdf/split": { POST: split.POST },
+  "/api/pdf/compress": { POST: compress.POST },
+  "/api/pdf/convert": { POST: convert.POST },
+  "/api/pdf/pages": { POST: pages.POST },
+  "/api/pdf/encrypt": { POST: encrypt.POST },
+  "/api/pdf/sign": { POST: sign.POST },
+  "/api/pdf/watermark": { POST: watermark.POST },
+  "/api/pdf/forms": { POST: forms.POST },
+  "/api/pdf/metadata": { POST: metadata.POST },
+  "/api/pdf/ocr": { GET: ocr.GET, POST: ocr.POST },
+  "/api/pdf/table-structure": { POST: tableStructure.POST },
+  "/api/pdf/search": { POST: search.POST },
+  "/api/pdf/flatten": { POST: flatten.POST },
+  "/api/pdf/open": { POST: open.POST },
+  "/api/pdf/apply-elements": { POST: applyElements.POST },
+  "/api/pdf/apply-model-ops": { POST: applyModelOps.POST },
+  "/api/pdf/ocg": { POST: ocg.POST },
 };
 
 const PORT = Number(process.env.PORT ?? 8002);
