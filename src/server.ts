@@ -51,6 +51,7 @@ import * as pdfa from "./routes/pdfa.js";
 import * as presentation from "./routes/presentation.js";
 import * as color from "./routes/color.js";
 import * as imposition from "./routes/imposition.js";
+import * as fonts from "./routes/fonts.js";
 
 type Handler = (request: Request) => Promise<Response>;
 type RouteTable = Record<string, Partial<Record<"GET" | "POST", Handler>>>;
@@ -94,6 +95,7 @@ const routes: RouteTable = {
   "/api/pdf/presentation": { POST: presentation.POST },
   "/api/pdf/color": { POST: color.POST },
   "/api/pdf/imposition": { POST: imposition.POST },
+  "/api/pdf/fonts": { GET: fonts.GET },
 };
 
 const PORT = Number(process.env.PORT ?? 8002);
