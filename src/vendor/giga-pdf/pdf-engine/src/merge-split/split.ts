@@ -87,15 +87,20 @@ export async function splitAt(buffer: Buffer, splitPoints: number[]): Promise<Bu
 
   const sorted = [...new Set(splitPoints)].sort((a, b) => a - b);
 
+  // Each split point is where a NEW part BEGINS (matches the editor's own
+  // dialog copy: "5, 10" creates parts 1-4, 5-9, 10-end) - a point is the
+  // START of its part, not the inclusive END of the previous one. Was
+  // previously off by one (treated the point as inclusive end), which threw
+  // "start must be <= end" for a split point on the document's last page.
   const ranges: PageRange[] = [];
   if (sorted.length === 0) {
     ranges.push({ start: 1, end: pageCount });
   } else {
-    ranges.push({ start: 1, end: sorted[0]! });
+    ranges.push({ start: 1, end: sorted[0]! - 1 });
     for (let i = 1; i < sorted.length; i++) {
-      ranges.push({ start: sorted[i - 1]! + 1, end: sorted[i]! });
+      ranges.push({ start: sorted[i - 1]!, end: sorted[i]! - 1 });
     }
-    ranges.push({ start: sorted[sorted.length - 1]! + 1, end: pageCount });
+    ranges.push({ start: sorted[sorted.length - 1]!, end: pageCount });
   }
 
   return splitPDF(buffer, ranges);
