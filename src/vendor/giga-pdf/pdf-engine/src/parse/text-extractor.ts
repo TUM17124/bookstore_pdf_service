@@ -3,6 +3,7 @@ import type { TextElement } from '@giga-pdf/types';
 import type { TextElementInfo } from '@qrcommunication/gigapdf-lib';
 import { rgbToHex } from '../utils';
 import { getEngine } from '../wasm';
+import { extractTextOpacityByPage, type PageTextOps } from './text-opacity';
 
 // ---------------------------------------------------------------------------
 // Text extractor — backed by the native engine's `textElements()` (no pdfjs).
@@ -213,9 +214,67 @@ function detectAlignment(
 // extractTextElementsByPage — document-level extraction used by parser.ts
 // ---------------------------------------------------------------------------
 
+/**
+ * Fabric's `originY: "bottom"` text anchor sits this far (em) below the
+ * baseline - the renderer's `DESCENDER_OFFSET_RATIO` (0.22) minus the engine's
+ * 0.2em descent of the run box. Keep in sync with `text-baseline.ts` in the
+ * editor.
+ */
+const ANCHOR_BELOW_BOX_EM = 0.02;
+
+/**
+ * Editor bounds for a run in web space (Y down, origin top-left).
+ *
+ * An upright run (the common case) keeps the engine's box unchanged. For a
+ * ROTATED run (a diagonal watermark) the engine's x/y/width/height is the
+ * axis-aligned box AROUND the rotated text, but the editor draws an
+ * unrotated text object and rotates it about its bottom-left anchor. Feeding
+ * it the enclosing box therefore showed a diagonal stamp clipped in the
+ * top-left corner. Recover the unrotated advance width and the anchor point so
+ * the editor's rotated object lands exactly where the export painted it.
+ */
+export function runBounds(run: TextElementInfo, pageHeight: number): { x: number; y: number; width: number; height: number } {
+  const rot = ((run.rotation % 360) + 360) % 360;
+  if (rot === 0 || !Number.isFinite(rot)) {
+    return { x: run.x, y: pageHeight - run.y - run.height, width: run.width, height: run.fontSize };
+  }
+  const rad = (rot * Math.PI) / 180;
+  const c = Math.cos(rad);
+  const s = Math.sin(rad);
+  const ac = Math.abs(c);
+  const as = Math.abs(s);
+  const boxH = 1.2 * run.fontSize; // engine run box height: 0.2em descent + 1em
+  // Axis-aligned box of a W x boxH rectangle rotated by rot:
+  //   run.width = W|c| + boxH|s|,  run.height = W|s| + boxH|c|
+  const advance = Math.max(
+    1,
+    as <= ac ? (run.width - boxH * as) / ac : (run.height - boxH * ac) / as,
+  );
+  // Rotated corner offsets from the box's bottom-left corner P0 (PDF space, Y up).
+  const dx = [0, advance * c, -boxH * s, advance * c - boxH * s];
+  const dy = [0, advance * s, boxH * c, advance * s + boxH * c];
+  const p0x = run.x - Math.min(...dx);
+  const p0y = run.y - Math.min(...dy);
+  // Editor anchor = P0 pushed ANCHOR_BELOW_BOX_EM further "down" the text frame.
+  const ax = p0x + ANCHOR_BELOW_BOX_EM * run.fontSize * s;
+  const ay = p0y - ANCHOR_BELOW_BOX_EM * run.fontSize * c;
+  return {
+    x: ax,
+    // renderer: top = bounds.y + 1.22em, originY bottom
+    y: pageHeight - ay - 1.22 * run.fontSize,
+    width: advance,
+    height: run.fontSize,
+  };
+}
+
 /** Map one engine text run to an editor `TextElement` (web coordinates).
  *  Exported for unit testing the `baseFont` → `style.originalFont` wiring. */
-export function runToTextElement(run: TextElementInfo, pageHeight: number, pageNumber: number): TextElement {
+export function runToTextElement(
+  run: TextElementInfo,
+  pageHeight: number,
+  pageNumber: number,
+  opacity = 1,
+): TextElement {
   return {
     // Deterministic id seeded by (page, type, text-run index): parsing the SAME
     // PDF twice yields the SAME elementId — required for cross-session layer
@@ -228,12 +287,7 @@ export function runToTextElement(run: TextElementInfo, pageHeight: number, pageN
     // FORM-XObject text the engine cannot edit in place — keep it as-is so the
     // apply pipeline recognises it as non-editable and falls back to redact+add.
     index: run.index,
-    bounds: {
-      x: run.x,
-      y: pageHeight - run.y - run.height,
-      width: run.width,
-      height: run.fontSize,
-    },
+    bounds: runBounds(run, pageHeight),
     transform: {
       // The editor renders in a Y-down viewport, so the user-space baseline
       // angle flips sign (0 stays 0 — avoid `-0`, which fails `toBe(0)`).
@@ -253,7 +307,8 @@ export function runToTextElement(run: TextElementInfo, pageHeight: number, pageN
       fontStyle: run.italic ? 'italic' : 'normal',
       fontSize: run.fontSize,
       color: colorHex(run.color),
-      opacity: 1,
+      // Constant fill alpha (ExtGState /ca) - a watermark stays translucent.
+      opacity,
       textAlign: 'left',
       lineHeight: 1.2,
       letterSpacing: 0,
@@ -310,6 +365,24 @@ export function runToTextElement(run: TextElementInfo, pageHeight: number, pageN
   };
 }
 
+/** Larger files skip the opacity scan (it reads the whole file as text). */
+const OPACITY_SCAN_MAX_BYTES = 40 * 1024 * 1024;
+
+/**
+ * Fill alpha per engine text-run index, or undefined when the scan cannot be
+ * matched 1:1 with the engine's runs (then every run keeps opacity 1).
+ */
+export function alphasForPage(
+  engineRuns: Array<{ index: number; operator: string }>,
+  scanned: PageTextOps | undefined,
+): number[] | undefined {
+  if (!scanned || scanned.ops.length !== engineRuns.length) return undefined;
+  for (let i = 0; i < engineRuns.length; i++) {
+    if (engineRuns[i]!.index !== i || engineRuns[i]!.operator !== scanned.ops[i]) return undefined;
+  }
+  return scanned.alphas.some((a) => a < 1) ? scanned.alphas : undefined;
+}
+
 /**
  * Extract every text run from a PDF, grouped by 1-based page number, as editor
  * `TextElement` scene-graph objects. Opens the document once. Empty / zero-size
@@ -325,12 +398,15 @@ export async function extractTextElementsByPage(
     const doc = giga.open(bytes);
     try {
       const pageCount = doc.pageCount();
+      const opacityByPage = bytes.byteLength <= OPACITY_SCAN_MAX_BYTES ? extractTextOpacityByPage(bytes) : new Map<number, PageTextOps>();
       for (let pageNumber = 1; pageNumber <= pageCount; pageNumber++) {
         const pageHeight = doc.pageInfo(pageNumber).height;
         const elements: TextElement[] = [];
-        for (const run of doc.textElements(pageNumber)) {
+        const runs = doc.textElements(pageNumber);
+        const alphas = runs.some((r) => r.text) ? alphasForPage(doc.textRuns(pageNumber), opacityByPage.get(pageNumber)) : undefined;
+        for (const run of runs) {
           if (!run.text || run.text.trim() === '' || run.fontSize < 0.1) continue;
-          elements.push(runToTextElement(run, pageHeight, pageNumber));
+          elements.push(runToTextElement(run, pageHeight, pageNumber, alphas?.[run.index] ?? 1));
         }
         if (elements.length > 0) byPage.set(pageNumber, elements);
       }
