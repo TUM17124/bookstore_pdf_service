@@ -14,7 +14,10 @@
  *     position — "center-diagonal" | "top-left" | "top-right" |
  *                "bottom-left" | "bottom-right" | "header" | "footer" |
  *                "custom" (default: center-diagonal)
- *     fontSize — Number (optional, auto-computed otherwise)
+ *     fontSize — Number 1-500 (optional; default depends on position and
+ *                is shrunk so the stamp fits on the page)
+ *     rotation — Degrees counter-clockwise, -360..360 (optional; default 45
+ *                for center-diagonal, 0 otherwise; ignored for "custom")
  *     color    — JSON array [r, g, b] in [0,1] (optional)
  *     custom   — JSON {x, y, rotation} when position === "custom"
  *
@@ -233,6 +236,15 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
+    const rotationRaw = formData.get('rotation') as string | null;
+    const rotation = rotationRaw ? Number(rotationRaw) : undefined;
+    if (rotation !== undefined && (Number.isNaN(rotation) || Math.abs(rotation) > 360)) {
+      return Response.json(
+        { success: false, error: 'rotation must be a number in [-360, 360].' },
+        { status: 400 },
+      );
+    }
+
     let color: [number, number, number] | undefined;
     const colorRaw = formData.get('color') as string | null;
     if (colorRaw) {
@@ -285,6 +297,7 @@ export async function POST(request: Request): Promise<Response> {
       fontSize,
       color,
       opacity,
+      rotation,
       custom,
     });
 

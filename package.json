@@ -7,7 +7,8 @@
   "scripts": {
     "dev": "tsx --env-file=.env watch src/server.ts",
     "start": "tsx --env-file=.env src/server.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test src/tests/*.test.ts"
   },
   "dependencies": {
     "@qrcommunication/gigapdf-lib": "0.121.0",
