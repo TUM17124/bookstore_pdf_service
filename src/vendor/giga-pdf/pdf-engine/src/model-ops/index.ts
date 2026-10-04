@@ -29,6 +29,8 @@
  * so a partially-valid batch never throws.
  */
 
+import { detectRuledTables } from './ruled-tables';
+import type { RulePath, RuleTextRun } from './ruled-tables';
 import type {
   GigaBlock,
   GigaBlockAddr,
@@ -642,6 +644,203 @@ export async function listPdfTables(
   const doc = engine.open(data);
   try {
     return listTablesInModel(doc.toModel());
+  } finally {
+    doc.close();
+  }
+}
+
+/** Where a listed table came from. */
+export type TableSource = 'model' | 'rules';
+
+export interface DetailedTableCell extends TableCellInfo {
+  /** The cell's text (lines joined with "\n"). */
+  text: string;
+}
+
+export interface DetailedTableInfo {
+  pageNumber: number;
+  /** Positional handle. Only meaningful for edits when `editable`. */
+  tableIndexOnPage: number;
+  rowCount: number;
+  colCount: number;
+  /**
+   * Placement frame in DISPLAYED page space (points, origin top-left, Y down,
+   * page rotation applied) - what the engine's own model frames use.
+   */
+  frame: GigaRect | null;
+  cells: DetailedTableCell[];
+  source: TableSource;
+  /** Row/column edits address engine model tables only; ruled-only tables are read-only. */
+  editable: boolean;
+}
+
+/** Plain text of a model table cell: its paragraphs' runs, one line per block. */
+function modelCellText(cellBlocks: unknown): string {
+  if (!Array.isArray(cellBlocks)) return '';
+  const lines: string[] = [];
+  for (const block of cellBlocks as GigaBlock[]) {
+    const kind = block?.kind?.t;
+    const runs = kind === 'paragraph' ? paragraphRuns(block) : kind === 'heading' ? headingRuns(block) : [];
+    const text = (runs as unknown[])
+      .map((r) => {
+        const run = r as { t?: string; text?: unknown; v?: { text?: unknown } };
+        const t = typeof run?.v?.text === 'string' ? run.v.text : typeof run?.text === 'string' ? run.text : '';
+        return t;
+      })
+      .join('');
+    if (text) lines.push(text);
+  }
+  return lines.join('\n');
+}
+
+/** PDF user-space rect (origin bottom-left) -> displayed page space (top-left, rotation applied). */
+export function userRectToDisplayed(
+  r: { x: number; y: number; w: number; h: number },
+  pageWidth: number,
+  pageHeight: number,
+  rotation: number,
+): GigaRect {
+  const rot = ((Math.round(rotation / 90) * 90) % 360 + 360) % 360;
+  switch (rot) {
+    case 90:
+      return { x: r.y, y: r.x, w: r.h, h: r.w };
+    case 180:
+      return { x: pageWidth - r.x - r.w, y: r.y, w: r.w, h: r.h };
+    case 270:
+      return { x: pageHeight - r.y - r.h, y: pageWidth - r.x - r.w, w: r.h, h: r.w };
+    default:
+      return { x: r.x, y: pageHeight - r.y - r.h, w: r.w, h: r.h };
+  }
+}
+
+function rectOverlap(a: GigaRect, b: GigaRect): { interOverSmaller: number; iou: number; interOverB: number } {
+  const x0 = Math.max(a.x, b.x);
+  const y0 = Math.max(a.y, b.y);
+  const x1 = Math.min(a.x + a.w, b.x + b.w);
+  const y1 = Math.min(a.y + a.h, b.y + b.h);
+  const inter = Math.max(0, x1 - x0) * Math.max(0, y1 - y0);
+  const areaA = a.w * a.h;
+  const areaB = b.w * b.h;
+  const union = areaA + areaB - inter;
+  return {
+    interOverSmaller: inter / Math.max(1e-6, Math.min(areaA, areaB)),
+    iou: union > 0 ? inter / union : 0,
+    interOverB: areaB > 0 ? inter / areaB : 0,
+  };
+}
+
+/**
+ * Every table in the document with the text of each cell: the engine's model
+ * tables (editable) completed by tables read from the drawn ruling lines
+ * ({@link detectRuledTables}), which the model recogniser misses (see that file).
+ *
+ * Per page: a ruled table is dropped when an engine table already covers it;
+ * an engine table that swallowed SEVERAL ruled tables is replaced by them; a
+ * ruled table the engine did not find at all is added (read-only).
+ */
+export async function listPdfTablesDetailed(
+  bytes: Buffer | Uint8Array | ArrayBuffer,
+): Promise<DetailedTableInfo[]> {
+  const engine = await getEngine();
+  const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes as ArrayBuffer);
+  const doc = engine.open(data);
+  try {
+    const model = doc.toModel();
+    const modelTables = listTablesInModel(model);
+    // Cell text straight from the model blocks, in the same walk order.
+    const textByHandle = new Map<string, string[]>();
+    {
+      let pageNumber = 0;
+      for (const section of Array.isArray(model.sections) ? model.sections : []) {
+        for (const page of Array.isArray(section?.pages) ? section.pages : []) {
+          pageNumber += 1;
+          let idx = 0;
+          for (const block of Array.isArray(page?.blocks) ? page.blocks : []) {
+            const body = block ? tableBody(block) : null;
+            if (!body) continue;
+            const texts: string[] = [];
+            for (const rowRaw of body.rows) {
+              const rowCells = (rowRaw as { cells?: unknown })?.cells;
+              if (!Array.isArray(rowCells)) continue;
+              for (const cell of rowCells as Array<{ blocks?: unknown }>) texts.push(modelCellText(cell?.blocks));
+            }
+            textByHandle.set(`${pageNumber}:${idx}`, texts);
+            idx += 1;
+          }
+        }
+      }
+    }
+
+    const out: DetailedTableInfo[] = [];
+    const pageCount = doc.pageCount();
+    const modelByPage = new Map<number, TableInfo[]>();
+    for (const t of modelTables) modelByPage.set(t.pageNumber, [...(modelByPage.get(t.pageNumber) ?? []), t]);
+
+    for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
+      const engineTables = modelByPage.get(pageNumber) ?? [];
+      const info = doc.pageInfo(pageNumber);
+      let ruled: DetailedTableInfo[] = [];
+      try {
+        const detected = detectRuledTables(doc.vectorPaths(pageNumber) as RulePath[], doc.textElements(pageNumber) as RuleTextRun[]);
+        ruled = detected.map((t, i) => ({
+          pageNumber,
+          tableIndexOnPage: engineTables.length + i,
+          rowCount: t.rowCount,
+          colCount: t.colCount,
+          frame: userRectToDisplayed(t.frame, info.width, info.height, info.rotation),
+          cells: t.cells.map((c) => ({ row: c.row, col: c.col, colSpan: c.colSpan, rowSpan: c.rowSpan, sourceIndices: c.sourceIndices, text: c.text })),
+          source: 'rules' as const,
+          editable: false,
+        }));
+      } catch {
+        ruled = []; // ruling-line reading is best effort; never lose the engine's tables
+      }
+
+      const claimed = new Set<number>(); // indices into `ruled` already represented
+      for (const e of engineTables) {
+        const texts = textByHandle.get(`${pageNumber}:${e.tableIndexOnPage}`) ?? [];
+        const asDetailed: DetailedTableInfo = {
+          pageNumber,
+          tableIndexOnPage: e.tableIndexOnPage,
+          rowCount: e.rowCount,
+          colCount: e.colCount,
+          frame: e.frame,
+          cells: e.cells.map((c, i) => ({ ...c, text: texts[i] ?? '' })),
+          source: 'model',
+          editable: true,
+        };
+        if (!e.frame) {
+          out.push(asDetailed);
+          continue;
+        }
+        const covered = ruled
+          .map((r, i) => ({ r, i }))
+          .filter(({ r }) => r.frame && rectOverlap(e.frame!, r.frame).interOverB >= 0.5);
+        if (covered.length >= 2) {
+          // The engine merged several ruled tables into one: trust the rules
+          // (the ruled tables are emitted below, none of them is claimed).
+          continue;
+        }
+        if (covered.length === 1) {
+          const only = covered[0]!;
+          const sameRegion = rectOverlap(e.frame, only.r.frame!).iou >= 0.7;
+          const sameGrid = only.r.rowCount === e.rowCount && only.r.colCount === e.colCount;
+          if (sameRegion && !sameGrid) {
+            // Same region, different grid: the drawn rules describe the table
+            // the reader sees, the engine's text-based guess does not (e.g. a
+            // whole table read as ONE row). Report the ruled grid (read-only).
+            continue;
+          }
+        }
+        covered.forEach(({ i }) => claimed.add(i));
+        out.push(asDetailed);
+      }
+      ruled.forEach((r, i) => {
+        if (claimed.has(i)) return;
+        out.push(r);
+      });
+    }
+    return out;
   } finally {
     doc.close();
   }

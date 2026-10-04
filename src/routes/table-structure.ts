@@ -17,8 +17,16 @@
  *
  * Returns JSON:
  *   { success: true, tables: [{ pageNumber, tableIndexOnPage, rowCount,
- *     colCount, frame: { x, y, w, h } | null,
- *     cells: [{ row, col, colSpan, rowSpan, sourceIndices }] }, ...] }
+ *     colCount, frame: { x, y, w, h } | null, source: "model" | "rules",
+ *     editable: boolean,
+ *     cells: [{ row, col, colSpan, rowSpan, sourceIndices, text }] }, ...] }
+ *
+ * `frame` is in DISPLAYED page space (points, origin TOP-left, page rotation
+ * applied) - the engine's own model frames use that space; it is NOT PDF user
+ * space. `source: "rules"` marks a table read from the drawn ruling lines that
+ * the engine's text-based recogniser did not report (or merged); it is
+ * `editable: false` (row/column edits only address engine model tables) but its
+ * `cells[].text` is complete, so it can be copied/exported.
  *
  * `cells[].sourceIndices` lets the editor map a clicked `TextElement.index` to a
  * specific cell `(row, col)` — enabling cell selection and precise row/column
@@ -30,7 +38,7 @@
  * apps/web/src/app/api/pdf/table-structure/route.ts.
  */
 
-import { listPdfTables, PDFCorruptedError } from '@giga-pdf/pdf-engine';
+import { listPdfTablesDetailed, PDFCorruptedError } from '@giga-pdf/pdf-engine';
 import { requireSession } from '../lib/auth-helpers';
 import { serverLogger } from '../lib/server-logger';
 import { validatePdfFile } from '../lib/request-validation';
@@ -47,7 +55,7 @@ export async function POST(request: Request): Promise<Response> {
     const file = fileValidation.file;
 
     const arrayBuffer = await file.arrayBuffer();
-    const tables = await listPdfTables(Buffer.from(arrayBuffer));
+    const tables = await listPdfTablesDetailed(Buffer.from(arrayBuffer));
 
     // Strip the internal block `addr` from the response — the client addresses by
     // the positional handle, never the raw [section, page, index] coordinates.
@@ -60,6 +68,8 @@ export async function POST(request: Request): Promise<Response> {
       colCount: t.colCount,
       frame: t.frame,
       cells: t.cells,
+      source: t.source,
+      editable: t.editable,
     }));
 
     return Response.json({ success: true, tables: payload });

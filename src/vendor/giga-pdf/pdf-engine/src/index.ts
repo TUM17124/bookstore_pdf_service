@@ -151,6 +151,7 @@ export {
   buildListAddrMap,
   listTablesInModel,
   listPdfTables,
+  listPdfTablesDetailed,
 } from './model-ops';
 export type {
   ParagraphStyleEdit,
@@ -159,6 +160,9 @@ export type {
   TableEdit,
   TableInfo,
   TableCellInfo,
+  DetailedTableInfo,
+  DetailedTableCell,
+  TableSource,
   ApplyTableOpsResult,
   GigaBlockAddr,
   GigaDocument,
