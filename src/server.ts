@@ -52,11 +52,12 @@ import * as presentation from "./routes/presentation.js";
 import * as color from "./routes/color.js";
 import * as imposition from "./routes/imposition.js";
 import * as fonts from "./routes/fonts.js";
+import { applyHeavyGuard, HeavyGate, optionsFromEnv } from "./lib/heavy-guard.js";
 
 type Handler = (request: Request) => Promise<Response>;
 type RouteTable = Record<string, Partial<Record<"GET" | "POST", Handler>>>;
 
-const routes: RouteTable = {
+const rawRoutes: RouteTable = {
   "/api/pdf/preview": { POST: preview.POST },
   "/api/pdf/parse": { POST: parse.POST },
   "/api/pdf/parse-from-s3": { POST: parseFromS3.POST },
@@ -97,6 +98,9 @@ const routes: RouteTable = {
   "/api/pdf/imposition": { POST: imposition.POST },
   "/api/pdf/fonts": { GET: fonts.GET },
 };
+
+// Heavy WASM routes run one at a time (see lib/heavy-guard.ts); the rest are untouched.
+const routes: RouteTable = applyHeavyGuard(rawRoutes, new HeavyGate(optionsFromEnv()));
 
 const PORT = Number(process.env.PORT ?? 8002);
 const DEFAULT_ALLOWED_ORIGINS = ["https://plugyard.com", "https://www.plugyard.com"];
